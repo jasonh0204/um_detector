@@ -1,6 +1,6 @@
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, scrolledtext
 
 import speech_recognition as sr
 
@@ -23,6 +23,7 @@ class UmDetectorApp:
         self.listen_thread = None
         self.buffer = []
         self.transcripts = {}
+        self.current_speaker = ""
 
         # UI elements
         main = ttk.Frame(root, padding=10)
@@ -48,7 +49,19 @@ class UmDetectorApp:
         self.status_var = tk.StringVar(value="Idle")
         ttk.Label(main, textvariable=self.status_var).grid(row=4, column=0, columnspan=2, sticky="w")
 
+        columns = ["Speaker"] + FILLER_WORDS
+        self.tree = ttk.Treeview(main, columns=columns, show="headings", height=5)
+        for col in columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, anchor="center")
+        self.tree.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+
+        self.text_box = scrolledtext.ScrolledText(main, height=5, state="disabled", wrap="word")
+        self.text_box.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+
         main.columnconfigure(1, weight=1)
+        main.rowconfigure(5, weight=1)
+        main.rowconfigure(6, weight=1)
 
     def start(self):
         if self.is_listening:
@@ -72,6 +85,11 @@ class UmDetectorApp:
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.buffer = []
+        self.current_speaker = self.speaker_var.get().strip() or "Unknown"
+        self.transcripts.setdefault(self.current_speaker, "")
+        self.text_box.config(state="normal")
+        self.text_box.delete("1.0", "end")
+        self.text_box.config(state="disabled")
         self.listen_thread = threading.Thread(target=self.listen_loop, daemon=True)
         self.listen_thread.start()
 
@@ -83,8 +101,27 @@ class UmDetectorApp:
                 try:
                     text = self.recognizer.recognize_google(audio)
                     self.buffer.append(text)
+                    self.root.after(0, self.handle_text, text)
                 except sr.UnknownValueError:
                     continue
+
+    def handle_text(self, text: str):
+        """Update transcripts, text box and table with recognized text."""
+        if not self.current_speaker:
+            return
+        self.transcripts[self.current_speaker] += " " + text
+        self.text_box.config(state="normal")
+        self.text_box.insert("end", text + " ")
+        self.text_box.see("end")
+        self.text_box.config(state="disabled")
+        self.update_table()
+
+    def update_table(self):
+        counts = {spk: count_fillers(txt) for spk, txt in self.transcripts.items()}
+        self.tree.delete(*self.tree.get_children())
+        for spk, data in counts.items():
+            values = [spk] + [data[word] for word in FILLER_WORDS]
+            self.tree.insert("", "end", values=values)
 
     def stop(self):
         if not self.is_listening:
@@ -95,10 +132,8 @@ class UmDetectorApp:
         if self.microphone is not None:
             self.microphone = None
 
-        speaker = self.speaker_var.get().strip() or "Unknown"
-        transcript = " ".join(self.buffer)
-        self.transcripts.setdefault(speaker, "")
-        self.transcripts[speaker] += " " + transcript
+        self.buffer = []
+        self.current_speaker = ""
         self.status_var.set("Idle")
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
@@ -107,6 +142,7 @@ class UmDetectorApp:
         if not self.transcripts:
             messagebox.showinfo("Results", "No data collected.")
             return
+        self.update_table()
         counts = {spk: count_fillers(text) for spk, text in self.transcripts.items()}
         headers = ["Speaker"] + FILLER_WORDS
         lines = ["\t".join(headers)]
