@@ -12,11 +12,12 @@ class UmDetectorApp:
         self.root = root
         self.root.title("Um Detector")
         self.recognizer = sr.Recognizer()
-        try:
-            self.microphone = sr.Microphone()
-        except Exception as exc:
-            messagebox.showerror("Microphone Error", f"Unable to access microphone: {exc}")
-            raise
+        self.microphone_names = sr.Microphone.list_microphone_names()
+        if not self.microphone_names:
+            messagebox.showerror("Microphone Error", "No input devices found.")
+            self.microphone_names = []
+        self.device_var = tk.StringVar(value=self.microphone_names[0] if self.microphone_names else "")
+        self.microphone = None
 
         self.is_listening = False
         self.listen_thread = None
@@ -31,21 +32,40 @@ class UmDetectorApp:
         self.speaker_var = tk.StringVar()
         ttk.Entry(main, textvariable=self.speaker_var).grid(row=0, column=1, sticky="ew")
 
-        self.start_button = ttk.Button(main, text="Start", command=self.start)
-        self.start_button.grid(row=1, column=0, pady=5)
+        ttk.Label(main, text="Input device:").grid(row=1, column=0, sticky="w")
+        self.device_combo = ttk.Combobox(main, textvariable=self.device_var, values=self.microphone_names, state="readonly")
+        self.device_combo.grid(row=1, column=1, sticky="ew")
+
+        self.start_button = ttk.Button(main, text="Start", command=self.start,
+                                        state="normal" if self.microphone_names else "disabled")
+        self.start_button.grid(row=2, column=0, pady=5)
         self.stop_button = ttk.Button(main, text="End", command=self.stop, state="disabled")
-        self.stop_button.grid(row=1, column=1, pady=5)
+        self.stop_button.grid(row=2, column=1, pady=5)
 
         self.show_button = ttk.Button(main, text="Show Results", command=self.show_results)
-        self.show_button.grid(row=2, column=0, columnspan=2, pady=5)
+        self.show_button.grid(row=3, column=0, columnspan=2, pady=5)
 
         self.status_var = tk.StringVar(value="Idle")
-        ttk.Label(main, textvariable=self.status_var).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Label(main, textvariable=self.status_var).grid(row=4, column=0, columnspan=2, sticky="w")
 
         main.columnconfigure(1, weight=1)
 
     def start(self):
         if self.is_listening:
+            return
+        if not self.microphone_names:
+            messagebox.showerror("Microphone Error", "No input device available")
+            return
+        device_name = self.device_var.get()
+        try:
+            device_index = self.microphone_names.index(device_name)
+        except ValueError:
+            messagebox.showerror("Microphone Error", "Selected input device is not available")
+            return
+        try:
+            self.microphone = sr.Microphone(device_index=device_index)
+        except Exception as exc:
+            messagebox.showerror("Microphone Error", f"Unable to access microphone: {exc}")
             return
         self.is_listening = True
         self.status_var.set("Listening...")
@@ -72,6 +92,8 @@ class UmDetectorApp:
         self.is_listening = False
         if self.listen_thread is not None:
             self.listen_thread.join()
+        if self.microphone is not None:
+            self.microphone = None
 
         speaker = self.speaker_var.get().strip() or "Unknown"
         transcript = " ".join(self.buffer)
