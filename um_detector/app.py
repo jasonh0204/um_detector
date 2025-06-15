@@ -128,8 +128,9 @@ class UmDetectorApp:
         if not self.is_listening:
             return
         self.is_listening = False
-        if self.listen_thread is not None:
-            self.listen_thread.join()
+        # Don't block the UI thread waiting for the listener thread to finish.
+        # The thread will exit on its own once `is_listening` is False.
+        self.listen_thread = None
         if self.microphone is not None:
             self.microphone = None
 
