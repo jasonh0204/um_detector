@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
 import speech_recognition as sr
+import openai
 
 from .detector import count_fillers, FILLER_WORDS
 
@@ -99,10 +100,10 @@ class UmDetectorApp:
             while self.is_listening:
                 audio = self.recognizer.listen(source, phrase_time_limit=5)
                 try:
-                    text = self.recognizer.recognize_google(audio)
+                    text = self.recognizer.recognize_openai(audio)
                     self.buffer.append(text)
                     self.root.after(0, self.handle_text, text)
-                except sr.UnknownValueError:
+                except (sr.UnknownValueError, openai.OpenAIError):
                     continue
 
     def handle_text(self, text: str):
