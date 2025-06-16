@@ -118,8 +118,10 @@ class UmDetectorApp:
             wav_data = audio.get_wav_data()
             audio_file = io.BytesIO(wav_data)
             audio_file.name = "audio.wav"
-            response = openai.Audio.transcribe("whisper-1", audio_file)
-            text = response["text"]
+            response = openai.audio.transcriptions.create(
+                model="gpt-4o-transcribe"
+                ,file=audio_file)
+            text = response.text
             self.buffer.append(text)
             self.root.after(0, self.handle_text, text)
         except (sr.UnknownValueError, openai.OpenAIError):
