@@ -2,8 +2,11 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
-import speech_recognition as sr
+import pyaudio
+import wave
 import openai
+import tempfile
+import time
 
 from .detector import count_fillers, FILLER_WORDS
 
@@ -12,13 +15,18 @@ class UmDetectorApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Um Detector")
-        self.recognizer = sr.Recognizer()
-        self.microphone_names = sr.Microphone.list_microphone_names()
+        self.audio = pyaudio.PyAudio()
+        self.devices = []
+        for i in range(self.audio.get_device_count()):
+            info = self.audio.get_device_info_by_index(i)
+            if info.get("maxInputChannels", 0) > 0:
+                self.devices.append((i, info["name"]))
+        self.microphone_names = [name for _, name in self.devices]
         if not self.microphone_names:
             messagebox.showerror("Microphone Error", "No input devices found.")
             self.microphone_names = []
         self.device_var = tk.StringVar(value=self.microphone_names[0] if self.microphone_names else "")
-        self.microphone = None
+        self.stream = None
 
         self.is_listening = False
         self.listen_thread = None
@@ -72,12 +80,19 @@ class UmDetectorApp:
             return
         device_name = self.device_var.get()
         try:
-            device_index = self.microphone_names.index(device_name)
-        except ValueError:
+            device_index = next(i for i, name in self.devices if name == device_name)
+        except StopIteration:
             messagebox.showerror("Microphone Error", "Selected input device is not available")
             return
         try:
-            self.microphone = sr.Microphone(device_index=device_index)
+            self.stream = self.audio.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=1024,
+            )
         except Exception as exc:
             messagebox.showerror("Microphone Error", f"Unable to access microphone: {exc}")
             return
@@ -95,30 +110,46 @@ class UmDetectorApp:
         self.listen_thread.start()
 
     def listen_loop(self):
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source)
-            while self.is_listening:
-                try:
-                    audio = self.recognizer.listen(
-                        source, timeout=3, phrase_time_limit=5
-                    )
-                except sr.WaitTimeoutError:
-                    # Stop if no speech is detected for the timeout period
-                    self.root.after(0, self.stop)
-                    break
-                # Transcribe in a background thread so we don't block audio capture
+        frames = []
+        start_time = time.time()
+        while self.is_listening:
+            try:
+                data = self.stream.read(1024, exception_on_overflow=False)
+            except Exception:
+                continue
+            frames.append(data)
+            if time.time() - start_time >= 5:
+                audio_bytes = b"".join(frames)
+                frames = []
+                start_time = time.time()
                 threading.Thread(
-                    target=self.process_audio, args=(audio,), daemon=True
+                    target=self.process_audio, args=(audio_bytes,), daemon=True
                 ).start()
+        if frames:
+            threading.Thread(
+                target=self.process_audio, args=(b"".join(frames),), daemon=True
+            ).start()
 
-    def process_audio(self, audio: sr.AudioData) -> None:
-        """Transcribe audio and update the UI when finished."""
-        try:
-            text = self.recognizer.recognize_openai(audio)
-            self.buffer.append(text)
-            self.root.after(0, self.handle_text, text)
-        except (sr.UnknownValueError, openai.OpenAIError):
-            pass
+    def process_audio(self, data: bytes) -> None:
+        """Transcribe raw audio bytes and update the UI when finished."""
+        if not data:
+            return
+        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+            wf = wave.open(tmp.name, "wb")
+            wf.setnchannels(1)
+            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))
+            wf.setframerate(16000)
+            wf.writeframes(data)
+            wf.close()
+            tmp.seek(0)
+            try:
+                result = openai.Audio.transcribe("whisper-1", tmp)
+                text = result.get("text", "")
+                if text:
+                    self.buffer.append(text)
+                    self.root.after(0, self.handle_text, text)
+            except openai.OpenAIError:
+                pass
 
     def handle_text(self, text: str):
         """Update transcripts, text box and table with recognized text."""
@@ -145,8 +176,18 @@ class UmDetectorApp:
         # Don't block the UI thread waiting for the listener thread to finish.
         # The thread will exit on its own once `is_listening` is False.
         self.listen_thread = None
-        if self.microphone is not None:
-            self.microphone = None
+        if self.stream is not None:
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            finally:
+                self.stream = None
+        if self.audio is not None:
+            try:
+                self.audio.terminate()
+            except Exception:
+                pass
+            self.audio = pyaudio.PyAudio()
 
         self.buffer = []
         self.current_speaker = ""
