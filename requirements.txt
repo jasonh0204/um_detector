@@ -1,2 +1,2 @@
 pyaudio
-openai
+openai[realtime]

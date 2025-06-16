@@ -6,7 +6,7 @@ A small desktop application that listens to speech and counts common filler word
 
 - Python 3.11+
 - [PyAudio](https://pypi.org/project/PyAudio/) (requires PortAudio development headers)
-- [OpenAI](https://pypi.org/project/openai/) for Whisper API access
+- [OpenAI](https://pypi.org/project/openai/) with the `realtime` extra for the real-time API
 
 Install dependencies with:
 
@@ -26,7 +26,7 @@ python -m um_detector.app
 
 Set the environment variable `OPENAI_API_KEY` with your API key before running.
 
-Enter the speaker name, choose the desired input device from the drop-down list and click **Start** to begin recording. Click **End** when the speaker finishes. When all speakers are done, click **Show Results** to display a table of filler word counts per participant.
+Enter the speaker name, choose the desired input device from the drop-down list and click **Start** to begin recording. The app streams audio to the OpenAI real-time transcription API. Click **End** when the speaker finishes. When all speakers are done, click **Show Results** to display a table of filler word counts per participant.
 
 ## Tests
 
