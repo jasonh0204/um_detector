@@ -32,6 +32,7 @@ class UmDetectorApp:
 
         self.is_listening = False
         self.listen_thread = None
+        self.speakers = []
         self.transcripts = {}
         self.current_speaker = ""
 
@@ -39,39 +40,67 @@ class UmDetectorApp:
         main = ttk.Frame(root, padding=10)
         main.grid(row=0, column=0, sticky="nsew")
 
-        ttk.Label(main, text="Speaker name:").grid(row=0, column=0, sticky="w")
-        self.speaker_var = tk.StringVar()
-        ttk.Entry(main, textvariable=self.speaker_var).grid(row=0, column=1, sticky="ew")
+        ttk.Label(main, text="Add speaker:").grid(row=0, column=0, sticky="w")
+        self.new_speaker_var = tk.StringVar()
+        ttk.Entry(main, textvariable=self.new_speaker_var).grid(row=0, column=1, sticky="ew")
+        ttk.Button(main, text="Add", command=self.add_speaker).grid(row=0, column=2, padx=(5, 0))
 
-        ttk.Label(main, text="Input device:").grid(row=1, column=0, sticky="w")
+        ttk.Label(main, text="Current speaker:").grid(row=1, column=0, sticky="w")
+        self.speaker_var = tk.StringVar()
+        self.speaker_combo = ttk.Combobox(main, textvariable=self.speaker_var, values=self.speakers, state="readonly")
+        self.speaker_combo.grid(row=1, column=1, columnspan=2, sticky="ew")
+
+        ttk.Label(main, text="Input device:").grid(row=2, column=0, sticky="w")
         self.device_combo = ttk.Combobox(main, textvariable=self.device_var, values=self.microphone_names, state="readonly")
-        self.device_combo.grid(row=1, column=1, sticky="ew")
+        self.device_combo.grid(row=2, column=1, columnspan=2, sticky="ew")
 
         self.start_button = ttk.Button(main, text="Start", command=self.start,
                                         state="normal" if self.microphone_names else "disabled")
-        self.start_button.grid(row=2, column=0, pady=5)
+        self.start_button.grid(row=3, column=0, pady=5)
         self.stop_button = ttk.Button(main, text="End", command=self.stop, state="disabled")
-        self.stop_button.grid(row=2, column=1, pady=5)
+        self.stop_button.grid(row=3, column=1, pady=5)
 
         self.show_button = ttk.Button(main, text="Show Results", command=self.show_results)
-        self.show_button.grid(row=3, column=0, columnspan=2, pady=5)
+        self.show_button.grid(row=4, column=0, columnspan=3, pady=5)
 
         self.status_var = tk.StringVar(value="Idle")
-        ttk.Label(main, textvariable=self.status_var).grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(main, textvariable=self.status_var).grid(row=5, column=0, columnspan=3, sticky="w")
 
         columns = ["Speaker"] + FILLER_WORDS
         self.tree = ttk.Treeview(main, columns=columns, show="headings", height=5)
         for col in columns:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor="center")
-        self.tree.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+        self.tree.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
 
         self.text_box = scrolledtext.ScrolledText(main, height=5, state="disabled", wrap="word")
-        self.text_box.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+        self.text_box.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
 
         main.columnconfigure(1, weight=1)
-        main.rowconfigure(5, weight=1)
+        main.columnconfigure(2, weight=1)
         main.rowconfigure(6, weight=1)
+        main.rowconfigure(7, weight=1)
+
+        self.speaker_var.trace_add("write", self.on_speaker_selected)
+
+    def add_speaker(self):
+        name = self.new_speaker_var.get().strip()
+        if not name:
+            return
+        if name not in self.speakers:
+            self.speakers.append(name)
+            self.transcripts.setdefault(name, "")
+            self.speaker_combo["values"] = self.speakers
+        self.speaker_var.set(name)
+        self.new_speaker_var.set("")
+
+    def on_speaker_selected(self, *args):
+        self.current_speaker = self.speaker_var.get().strip() or "Unknown"
+        self.transcripts.setdefault(self.current_speaker, "")
+        if self.current_speaker not in self.speakers:
+            self.speakers.append(self.current_speaker)
+            self.speaker_combo["values"] = self.speakers
+            self.speaker_var.set(self.current_speaker)
 
     def start(self):
         if self.is_listening:
