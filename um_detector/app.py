@@ -37,10 +37,8 @@ class UmDetectorApp:
         ttk.Button(main, text="Add", command=self.add_speaker).grid(row=0, column=2, padx=(5, 0))
 
         ttk.Label(main, text="Current speaker:").grid(row=1, column=0, sticky="w")
-        self.current_speaker_var = tk.StringVar()
-        self.current_speaker_combo = ttk.Combobox(main, textvariable=self.current_speaker_var, values=[], state="readonly")
-        self.current_speaker_combo.grid(row=1, column=1, sticky="ew")
-        self.current_speaker_combo.bind("<<ComboboxSelected>>", lambda e: self.select_speaker())
+        self.current_speaker_label = ttk.Label(main, text="")
+        self.current_speaker_label.grid(row=1, column=1, sticky="w")
 
         ttk.Label(main, text="Input device:").grid(row=2, column=0, sticky="w")
         self.device_combo = ttk.Combobox(main, textvariable=self.device_var, values=self.microphone_names, state="readonly")
@@ -64,6 +62,7 @@ class UmDetectorApp:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor="center")
         self.tree.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
 
         self.text_box = scrolledtext.ScrolledText(main, height=5, state="disabled", wrap="word")
         self.text_box.grid(row=7, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
@@ -79,21 +78,17 @@ class UmDetectorApp:
             return
         if name not in self.transcripts:
             self.transcripts[name] = ""
-            self.update_speaker_list()
             self.update_table()
         self.speaker_var.set("")
 
-    def select_speaker(self):
-        """Set the current speaker based on UI selection."""
-        self.current_speaker = self.current_speaker_var.get().strip()
-
-    def update_speaker_list(self):
-        """Refresh the combobox values with known speakers."""
-        speakers = list(self.transcripts.keys())
-        self.current_speaker_combo["values"] = speakers
-        if self.current_speaker not in speakers:
-            self.current_speaker = ""
-            self.current_speaker_var.set("")
+    def on_tree_select(self, event):
+        """Handle table selection and set the current speaker."""
+        selection = self.tree.selection()
+        if not selection:
+            return
+        item = self.tree.item(selection[0])
+        self.current_speaker = item["values"][0]
+        self.current_speaker_label.config(text=self.current_speaker)
 
     def start(self):
         if self.is_listening:
@@ -117,9 +112,13 @@ class UmDetectorApp:
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.buffer = []
-        self.current_speaker = self.current_speaker_var.get().strip()
-        if self.current_speaker:
-            self.transcripts.setdefault(self.current_speaker, "")
+        if not self.current_speaker:
+            messagebox.showerror("Speaker Error", "Please select a speaker from the table.")
+            self.start_button.config(state="normal")
+            self.stop_button.config(state="disabled")
+            self.is_listening = False
+            return
+        self.transcripts.setdefault(self.current_speaker, "")
         self.text_box.config(state="normal")
         self.text_box.delete("1.0", "end")
         self.text_box.config(state="disabled")
@@ -174,7 +173,9 @@ class UmDetectorApp:
         self.tree.delete(*self.tree.get_children())
         for spk, data in counts.items():
             values = [spk] + [data[word] for word in FILLER_WORDS]
-            self.tree.insert("", "end", values=values)
+            self.tree.insert("", "end", iid=spk, values=values)
+        if self.current_speaker and self.current_speaker in self.tree.get_children():
+            self.tree.selection_set(self.current_speaker)
 
     def stop(self):
         if not self.is_listening:
@@ -188,6 +189,7 @@ class UmDetectorApp:
 
         self.buffer = []
         self.current_speaker = ""
+        self.current_speaker_label.config(text="")
         self.status_var.set("Idle")
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
