@@ -98,13 +98,27 @@ class UmDetectorApp:
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source)
             while self.is_listening:
-                audio = self.recognizer.listen(source, phrase_time_limit=5)
                 try:
-                    text = self.recognizer.recognize_openai(audio)
-                    self.buffer.append(text)
-                    self.root.after(0, self.handle_text, text)
-                except (sr.UnknownValueError, openai.OpenAIError):
-                    continue
+                    audio = self.recognizer.listen(
+                        source, timeout=3, phrase_time_limit=5
+                    )
+                except sr.WaitTimeoutError:
+                    # Stop if no speech is detected for the timeout period
+                    self.root.after(0, self.stop)
+                    break
+                # Transcribe in a background thread so we don't block audio capture
+                threading.Thread(
+                    target=self.process_audio, args=(audio,), daemon=True
+                ).start()
+
+    def process_audio(self, audio: sr.AudioData) -> None:
+        """Transcribe audio and update the UI when finished."""
+        try:
+            text = self.recognizer.recognize_openai(audio)
+            self.buffer.append(text)
+            self.root.after(0, self.handle_text, text)
+        except (sr.UnknownValueError, openai.OpenAIError):
+            pass
 
     def handle_text(self, text: str):
         """Update transcripts, text box and table with recognized text."""
