@@ -34,36 +34,66 @@ class UmDetectorApp:
         ttk.Label(main, text="Speaker name:").grid(row=0, column=0, sticky="w")
         self.speaker_var = tk.StringVar()
         ttk.Entry(main, textvariable=self.speaker_var).grid(row=0, column=1, sticky="ew")
+        ttk.Button(main, text="Add", command=self.add_speaker).grid(row=0, column=2, padx=(5, 0))
 
-        ttk.Label(main, text="Input device:").grid(row=1, column=0, sticky="w")
+        ttk.Label(main, text="Current speaker:").grid(row=1, column=0, sticky="w")
+        self.current_speaker_var = tk.StringVar()
+        self.current_speaker_combo = ttk.Combobox(main, textvariable=self.current_speaker_var, values=[], state="readonly")
+        self.current_speaker_combo.grid(row=1, column=1, sticky="ew")
+        self.current_speaker_combo.bind("<<ComboboxSelected>>", lambda e: self.select_speaker())
+
+        ttk.Label(main, text="Input device:").grid(row=2, column=0, sticky="w")
         self.device_combo = ttk.Combobox(main, textvariable=self.device_var, values=self.microphone_names, state="readonly")
-        self.device_combo.grid(row=1, column=1, sticky="ew")
+        self.device_combo.grid(row=2, column=1, sticky="ew")
 
         self.start_button = ttk.Button(main, text="Start", command=self.start,
                                         state="normal" if self.microphone_names else "disabled")
-        self.start_button.grid(row=2, column=0, pady=5)
+        self.start_button.grid(row=3, column=0, pady=5)
         self.stop_button = ttk.Button(main, text="End", command=self.stop, state="disabled")
-        self.stop_button.grid(row=2, column=1, pady=5)
+        self.stop_button.grid(row=3, column=1, pady=5)
 
         self.show_button = ttk.Button(main, text="Show Results", command=self.show_results)
-        self.show_button.grid(row=3, column=0, columnspan=2, pady=5)
+        self.show_button.grid(row=4, column=0, columnspan=2, pady=5)
 
         self.status_var = tk.StringVar(value="Idle")
-        ttk.Label(main, textvariable=self.status_var).grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(main, textvariable=self.status_var).grid(row=5, column=0, columnspan=2, sticky="w")
 
         columns = ["Speaker"] + FILLER_WORDS
         self.tree = ttk.Treeview(main, columns=columns, show="headings", height=5)
         for col in columns:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor="center")
-        self.tree.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+        self.tree.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
 
         self.text_box = scrolledtext.ScrolledText(main, height=5, state="disabled", wrap="word")
-        self.text_box.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
+        self.text_box.grid(row=7, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
 
         main.columnconfigure(1, weight=1)
-        main.rowconfigure(5, weight=1)
         main.rowconfigure(6, weight=1)
+        main.rowconfigure(7, weight=1)
+
+    def add_speaker(self):
+        """Add a new speaker to the list and update UI widgets."""
+        name = self.speaker_var.get().strip()
+        if not name:
+            return
+        if name not in self.transcripts:
+            self.transcripts[name] = ""
+            self.update_speaker_list()
+            self.update_table()
+        self.speaker_var.set("")
+
+    def select_speaker(self):
+        """Set the current speaker based on UI selection."""
+        self.current_speaker = self.current_speaker_var.get().strip()
+
+    def update_speaker_list(self):
+        """Refresh the combobox values with known speakers."""
+        speakers = list(self.transcripts.keys())
+        self.current_speaker_combo["values"] = speakers
+        if self.current_speaker not in speakers:
+            self.current_speaker = ""
+            self.current_speaker_var.set("")
 
     def start(self):
         if self.is_listening:
@@ -87,8 +117,9 @@ class UmDetectorApp:
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.buffer = []
-        self.current_speaker = self.speaker_var.get().strip() or "Unknown"
-        self.transcripts.setdefault(self.current_speaker, "")
+        self.current_speaker = self.current_speaker_var.get().strip()
+        if self.current_speaker:
+            self.transcripts.setdefault(self.current_speaker, "")
         self.text_box.config(state="normal")
         self.text_box.delete("1.0", "end")
         self.text_box.config(state="disabled")
