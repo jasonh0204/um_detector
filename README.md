@@ -7,7 +7,7 @@ A small desktop application that listens to speech and counts common filler word
 - Python 3.11+
 - [SpeechRecognition](https://pypi.org/project/SpeechRecognition/)
 - [PyAudio](https://pypi.org/project/PyAudio/) (requires PortAudio development headers)
-- [OpenAI](https://pypi.org/project/openai/) for Whisper API access
+- [OpenAI](https://pypi.org/project/openai/) for transcription API access
 
 Install dependencies with:
 

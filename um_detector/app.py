@@ -1,6 +1,7 @@
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+import io
 
 import speech_recognition as sr
 import openai
@@ -114,7 +115,11 @@ class UmDetectorApp:
     def process_audio(self, audio: sr.AudioData) -> None:
         """Transcribe audio and update the UI when finished."""
         try:
-            text = self.recognizer.recognize_openai(audio)
+            wav_data = audio.get_wav_data()
+            audio_file = io.BytesIO(wav_data)
+            audio_file.name = "audio.wav"
+            response = openai.Audio.transcribe("whisper-1", audio_file)
+            text = response["text"]
             self.buffer.append(text)
             self.root.after(0, self.handle_text, text)
         except (sr.UnknownValueError, openai.OpenAIError):
