@@ -3,10 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
 import pyaudio
-import wave
 import openai
-import tempfile
-import time
+import base64
 
 from .detector import count_fillers, FILLER_WORDS
 
@@ -16,6 +14,10 @@ class UmDetectorApp:
         self.root = root
         self.root.title("Um Detector")
         self.audio = pyaudio.PyAudio()
+        self.client = openai.OpenAI()
+        self.realtime_manager = None
+        self.realtime_conn = None
+        self.event_thread = None
         self.devices = []
         for i in range(self.audio.get_device_count()):
             info = self.audio.get_device_info_by_index(i)
@@ -30,7 +32,6 @@ class UmDetectorApp:
 
         self.is_listening = False
         self.listen_thread = None
-        self.buffer = []
         self.transcripts = {}
         self.current_speaker = ""
 
@@ -88,7 +89,7 @@ class UmDetectorApp:
             self.stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=1,
-                rate=16000,
+                rate=24000,
                 input=True,
                 input_device_index=device_index,
                 frames_per_buffer=1024,
@@ -98,9 +99,16 @@ class UmDetectorApp:
             return
         self.is_listening = True
         self.status_var.set("Listening...")
+        self.realtime_manager = self.client.beta.realtime.connect(model="gpt-4o-realtime-preview")
+        self.realtime_conn = self.realtime_manager.enter()
+        try:
+            self.realtime_conn.session.update(session={"turn_detection": {"type": "server_vad"}})
+        except Exception:
+            pass
+        self.event_thread = threading.Thread(target=self.event_loop, daemon=True)
+        self.event_thread.start()
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
-        self.buffer = []
         self.current_speaker = self.speaker_var.get().strip() or "Unknown"
         self.transcripts.setdefault(self.current_speaker, "")
         self.text_box.config(state="normal")
@@ -110,46 +118,34 @@ class UmDetectorApp:
         self.listen_thread.start()
 
     def listen_loop(self):
-        frames = []
-        start_time = time.time()
         while self.is_listening:
             try:
                 data = self.stream.read(1024, exception_on_overflow=False)
             except Exception:
                 continue
-            frames.append(data)
-            if time.time() - start_time >= 5:
-                audio_bytes = b"".join(frames)
-                frames = []
-                start_time = time.time()
-                threading.Thread(
-                    target=self.process_audio, args=(audio_bytes,), daemon=True
-                ).start()
-        if frames:
-            threading.Thread(
-                target=self.process_audio, args=(b"".join(frames),), daemon=True
-            ).start()
+            if self.realtime_conn is not None:
+                try:
+                    audio_b64 = base64.b64encode(data).decode("utf-8")
+                    self.realtime_conn.input_audio_buffer.append(audio=audio_b64)
+                except Exception:
+                    pass
 
-    def process_audio(self, data: bytes) -> None:
-        """Transcribe raw audio bytes and update the UI when finished."""
-        if not data:
+    def event_loop(self):
+        if self.realtime_conn is None:
             return
-        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
-            wf = wave.open(tmp.name, "wb")
-            wf.setnchannels(1)
-            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))
-            wf.setframerate(16000)
-            wf.writeframes(data)
-            wf.close()
-            tmp.seek(0)
+        try:
+            for event in self.realtime_conn:
+                if not self.is_listening:
+                    break
+                if event.type == "conversation.item.input_audio_transcription.completed":
+                    if getattr(event, "transcript", ""):
+                        self.root.after(0, self.handle_text, event.transcript)
+        finally:
             try:
-                result = openai.Audio.transcribe("whisper-1", tmp)
-                text = result.get("text", "")
-                if text:
-                    self.buffer.append(text)
-                    self.root.after(0, self.handle_text, text)
-            except openai.OpenAIError:
+                self.realtime_conn.close()
+            except Exception:
                 pass
+
 
     def handle_text(self, text: str):
         """Update transcripts, text box and table with recognized text."""
@@ -176,6 +172,16 @@ class UmDetectorApp:
         # Don't block the UI thread waiting for the listener thread to finish.
         # The thread will exit on its own once `is_listening` is False.
         self.listen_thread = None
+        if self.event_thread is not None:
+            self.event_thread = None
+        if self.realtime_conn is not None:
+            try:
+                self.realtime_conn.close()
+            except Exception:
+                pass
+            self.realtime_conn = None
+        if self.realtime_manager is not None:
+            self.realtime_manager = None
         if self.stream is not None:
             try:
                 self.stream.stop_stream()
@@ -189,7 +195,6 @@ class UmDetectorApp:
                 pass
             self.audio = pyaudio.PyAudio()
 
-        self.buffer = []
         self.current_speaker = ""
         self.status_var.set("Idle")
         self.start_button.config(state="normal")
